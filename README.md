@@ -4,6 +4,49 @@ For documentation in Chinese, see [README.zh.md](README.zh.md).
 
 EchoTranslateService is a TypeScript backend that bridges incoming WebSocket audio streams to Alibaba Cloud NLS speech recognition and machine translation services. The service mirrors the behaviour of the original JavaScript server while focusing on readability, maintainability, and observability.
 
+## Architecture Overview
+
+```mermaid
+flowchart LR
+  A["Client<br/>(Browser/Extension)"] -- PCM audio frames --> B[WebSocket Server]
+  B -- Buffer until NLS ready --> C[AudioBufferQueue]
+  B -- Request token --> D[NlsTokenProvider]
+  D -- STS token --> E["Alibaba NLS<br/>SpeechTranscription"]
+  C -- Forward audio --> E
+  E -- Partial & final transcripts --> F[SpeechSession]
+  F -- Normalize & cache --> G[TranslationService]
+  G -- Call MT API --> H["Alibaba Machine<br/>Translation"]
+  H -- Translated text --> F
+  F -- JSON events --> A
+```
+
+1. Clients open a WebSocket connection and stream 16 kHz PCM audio frames.
+2. `SpeechSession` obtains a short-lived NLS token, then starts an Alibaba NLS transcription session.
+3. Incoming audio is temporarily buffered until NLS reports readiness, preventing cold-start loss.
+4. Partial transcripts are emitted immediately; finalized text is normalized, optionally cached, and translated.
+5. Translated subtitles (and raw recognition text) are pushed back to the client as JSON messages (`changed`, `end`, `completed`, etc.).
+
+## WebSocket Responses
+
+Every server-to-client frame is UTF-8 JSON with the following envelope:
+
+```json
+{
+  "type": "changed",
+  "data": { /* event-specific payload */ }
+}
+```
+
+| `type` value | `data` payload (shape & notable fields) |
+| ------------ | --------------------------------------- |
+| `started`    | `{ "message": string }` – emitted once the NLS session is active. |
+| `changed`    | `{ "source": string, "result": string, "detectedLanguage": string, "isTranslated": boolean, "latencyMs"?: number }` – incremental transcript updates; `result` is translated text when `isTranslated` is true. |
+| `end` / `completed` | Same shape as `changed`; sent when a sentence is finalised. |
+| `closed`     | `{ "message": string }` – acknowledgement that the session ended normally. |
+| `error` / `failed` | `{ "message": string, "details"?: string }` – unrecoverable errors; clients should close and retry. |
+
+Binary frames from the client should contain 16 kHz PCM audio; all textual responses originate from the server using the schema above.
+
 ## Prerequisites
 
 - Node.js >= 18
