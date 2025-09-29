@@ -1,6 +1,6 @@
-# Video Translate Service
+# EchoTranslateService
 
-基于 TypeScript 的实时字幕后端服务，负责将 WebSocket 音频流接入阿里云语音识别与机器翻译，并将字幕结果实时推送给客户端。
+EchoTranslateService 是一个基于 TypeScript 的实时字幕后端服务，负责将 WebSocket 音频流接入阿里云语音识别与机器翻译，并将字幕结果实时推送给客户端。
 
 ## 功能特性
 

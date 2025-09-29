@@ -1,6 +1,8 @@
-# Video Translate Service
+# EchoTranslateService
 
-TypeScript backend that bridges incoming WebSocket audio streams to Alibaba Cloud NLS speech recognition and machine translation services. The service mirrors the behaviour of the original JavaScript server while focusing on readability, maintainability, and observability.
+For documentation in Chinese, see [README.zh.md](README.zh.md).
+
+EchoTranslateService is a TypeScript backend that bridges incoming WebSocket audio streams to Alibaba Cloud NLS speech recognition and machine translation services. The service mirrors the behaviour of the original JavaScript server while focusing on readability, maintainability, and observability.
 
 ## Prerequisites
 
@@ -11,15 +13,18 @@ TypeScript backend that bridges incoming WebSocket audio streams to Alibaba Clou
 ## Setup
 
 1. Install dependencies:
+
    ```bash
    npm install
    ```
 2. Copy the example environment file and populate your credentials:
+
    ```bash
    cp .env.example .env
    ```
-   Required variables:
-   - `ALI_ACCESS_KEY_ID`
+
+   Required variables:- `ALI_ACCESS_KEY_ID`
+
    - `ALI_ACCESS_KEY_SECRET`
    - `ALI_NLS_APP_KEY`
 
@@ -40,14 +45,14 @@ TypeScript backend that bridges incoming WebSocket audio streams to Alibaba Clou
 
 ## Latency tuning knobs
 
-| Variable | Default | Effect |
-| -------- | ------- | ------ |
-| `RECOGNITION_BUFFER_MAX_CHUNKS` | 16 | Maximum audio frames buffered before NLS is ready |
-| `RECOGNITION_MAX_START_SILENCE_MS` | 2000 | Silence tolerated (ms) before speech is considered started |
-| `RECOGNITION_MAX_END_SILENCE_MS` | 200 | Silence tolerated (ms) before speech is considered finished |
-| `RECOGNITION_ENABLE_VOICE_DETECTION` | false | Enable/disable server-side voice activity detection |
-| `RECOGNITION_MIN_CHANGED_DELTA` | 4 | Minimum character delta between `changed` events to re-trigger translation |
-| `RECOGNITION_SEND_SOURCE_IMMEDIATELY` | true | Whether raw recognition text is pushed before translation completes |
+| Variable                                | Default | Effect                                                                       |
+| --------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `RECOGNITION_BUFFER_MAX_CHUNKS`       | 16      | Maximum audio frames buffered before NLS is ready                            |
+| `RECOGNITION_MAX_START_SILENCE_MS`    | 2000    | Silence tolerated (ms) before speech is considered started                   |
+| `RECOGNITION_MAX_END_SILENCE_MS`      | 200     | Silence tolerated (ms) before speech is considered finished                  |
+| `RECOGNITION_ENABLE_VOICE_DETECTION`  | false   | Enable/disable server-side voice activity detection                          |
+| `RECOGNITION_MIN_CHANGED_DELTA`       | 4       | Minimum character delta between `changed` events to re-trigger translation |
+| `RECOGNITION_SEND_SOURCE_IMMEDIATELY` | true    | Whether raw recognition text is pushed before translation completes          |
 
 ## Deployment
 
