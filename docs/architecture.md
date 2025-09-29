@@ -73,13 +73,17 @@ sequenceDiagram
 | NLS SDK | `start` 参数（编码、静音阈值等） | 识别结果 JSON 字符串 |
 | 翻译 SDK | `TranslateGeneralRequest` | 翻译后的文本 |
 
-输出 JSON 消息示例：
+输出 JSON 消息示例（翻译完成后）：
 ```json
 {
   "type": "changed",
   "data": {
-    "result": "こんにちは",
-    "detectedLanguage": "ja"
+    "result": "你好",
+    "source": "こんにちは",
+    "detectedLanguage": "ja",
+    "isTranslated": true,
+    "isFinal": false,
+    "latencyMs": 320
   }
 }
 ```
@@ -87,9 +91,10 @@ sequenceDiagram
 ## 配置与扩展点
 
 - 所有阿里云密钥、端口、日志等级通过 `.env` 管理。
-- `AudioBufferQueue` 限制缓冲大小（默认 32）可按需调整。
+- `AudioBufferQueue` 限制缓冲大小（默认 16，可通过 `RECOGNITION_BUFFER_MAX_CHUNKS` 调整）。
 - `TranslationService` 暴露了 `defaultSourceLanguage`、`targetLanguage` 等参数，可支持多语言翻译策略。
 - 日志分级通过 `LOG_LEVEL` 控制，便于线上排障。
+- 识别参数（静音阈值、是否推送原文等）通过 `RECOGNITION_*` 环境变量细粒度调优。
 
 ## 复用性设计
 
@@ -108,7 +113,8 @@ sequenceDiagram
 ## 性能考量
 
 - 使用缓存 Token，避免每次发送音频都请求。
-- 缓冲队列确保 NLS 建立前不会丢失音频包。
+- 缓冲队列确保 NLS 建立前不会丢失音频包，同时支持削减缓存长度以降低首包延迟。
+- `changed` 事件先推原文，再异步翻译并去重，减少等待译文的主观延迟。
 - 通过 `SessionMetrics` 增加可观察性，可在未来接入监控或 Prometheus 指标。
 
 ## 后续演进

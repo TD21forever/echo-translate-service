@@ -4,7 +4,7 @@ import type { SpeechTranscription as SpeechTranscriptionType } from 'alibabaclou
 
 import config from '../config';
 import { NlsTokenProvider } from '../clients/nlsTokenProvider';
-import { TranslationService } from './translationService';
+import { TranslationService, TranslationOutcome } from './translationService';
 import { logger } from '../utils/logger';
 import { AudioBufferQueue, toAudioBuffer } from '../core/audioBufferQueue';
 import { SessionMetrics } from '../core/sessionMetrics';
@@ -12,15 +12,20 @@ import { sendJsonMessage } from '../core/messages';
 
 const { SpeechTranscription } = Nls;
 
+type SpeechTranscriptionFactory = (token: string) => SpeechTranscriptionType;
+
+interface SpeechSessionOptions {
+  transcriptionFactory?: SpeechTranscriptionFactory;
+}
+
 const TRANSCRIPTION_PARAMS = {
-  format: 'pcm',
+  format: 'pcm', // 音频格式
   sample_rate: 16000,
   enable_punctuation_prediction: true,
   enable_inverse_text_normalization: true,
-  enable_voice_detection: true,
-  max_start_silence: 10000,
-  max_end_silence: 800,
-  enable_words: false,
+  enable_semantic_sentence_detection: config.recognition.enableSemanticSentenceDetection,
+  enable_intermediate_result: true,
+  enable_words: true,
 };
 
 function extractRecognitionResult(raw: string): string {
@@ -38,27 +43,37 @@ function extractRecognitionResult(raw: string): string {
 export class SpeechSession {
   private transcription: SpeechTranscriptionType | null = null;
   private readonly metrics = new SessionMetrics();
-  private readonly audioQueue = new AudioBufferQueue();
+  private readonly audioQueue: AudioBufferQueue;
   private isReady = false;
   private closed = false;
+  private readonly transcriptionFactory: SpeechTranscriptionFactory;
+  private readonly translationCache = new Map<string, Promise<TranslationOutcome>>();
+  private lastTranslatedSource = '';
+  private lastSourceText = '';
 
   constructor(
     private readonly socket: WebSocket,
     private readonly connectionId: number,
     private readonly tokenProvider: NlsTokenProvider,
-    private readonly translationService: TranslationService
+    private readonly translationService: TranslationService,
+    options: SpeechSessionOptions = {}
   ) {
+    this.transcriptionFactory =
+      options.transcriptionFactory ??
+      ((token) =>
+        new SpeechTranscription({
+          url: config.nls.wsUrl,
+          appkey: config.nls.appKey,
+          token,
+        }));
+    this.audioQueue = new AudioBufferQueue(config.recognition.bufferMaxChunks);
     this.setupSocketHandlers();
   }
 
   async initialize(): Promise<void> {
     const token = await this.tokenProvider.getToken();
 
-    this.transcription = new SpeechTranscription({
-      url: config.nls.wsUrl,
-      appkey: config.nls.appKey,
-      token,
-    });
+    this.transcription = this.transcriptionFactory(token);
 
     this.attachTranscriptionListeners(this.transcription);
 
@@ -122,7 +137,7 @@ export class SpeechSession {
         return;
       }
 
-      await this.handleTranslation(result, 'changed');
+      await this.handleRecognition(result, 'changed');
     });
 
     transcription.on('end', async (msg: string) => {
@@ -131,7 +146,7 @@ export class SpeechSession {
         return;
       }
 
-      await this.handleTranslation(result, 'end');
+      await this.handleRecognition(result, 'end');
     });
 
     transcription.on('completed', async (msg: string) => {
@@ -140,7 +155,7 @@ export class SpeechSession {
         return;
       }
 
-      await this.handleTranslation(result, 'completed');
+      await this.handleRecognition(result, 'completed');
     });
 
     transcription.on('closed', () => {
@@ -161,7 +176,41 @@ export class SpeechSession {
     });
   }
 
-  private async handleTranslation(result: string, eventType: 'changed' | 'end' | 'completed'): Promise<void> {
+  private async handleRecognition(result: string, eventType: 'changed' | 'end' | 'completed'): Promise<void> {
+    const isChanged = eventType === 'changed';
+
+    if (isChanged) {
+      if (result === this.lastSourceText) {
+        return;
+      }
+      logger.debug('speech', 'Recognition result changed', {
+        connectionId: this.connectionId,
+        result,
+      });
+      this.lastSourceText = result;
+    } else {
+      this.lastSourceText = '';
+      this.lastTranslatedSource = '';
+    }
+
+    if (config.recognition.sendSourceImmediately) {
+      sendJsonMessage(this.socket, eventType, {
+        result,
+        source: result,
+        isTranslated: false,
+        isFinal: !isChanged,
+      });
+    }
+
+    const shouldTranslate = !isChanged || this.shouldTranslateChanged(result);
+    if (!shouldTranslate) {
+      return;
+    }
+
+    if (isChanged) {
+      this.lastTranslatedSource = result;
+    }
+
     this.metrics.incrementTranslations();
     logger.debug('translation', 'Processing recognition result', {
       connectionId: this.connectionId,
@@ -169,15 +218,60 @@ export class SpeechSession {
       textPreview: result.slice(0, 60),
     });
 
-    const translation = await this.translationService.translate(result, {
-      connectionId: this.connectionId,
-      eventType,
-    });
+    const translation = await this.resolveTranslation(result, eventType);
 
     sendJsonMessage(this.socket, eventType, {
       result: translation.translatedText,
+      source: result,
       detectedLanguage: translation.detectedLanguage,
+      isTranslated: true,
+      isFinal: !isChanged,
+      latencyMs: translation.durationMs,
     });
+
+    logger.debug('translation', 'Translation completed', {
+      connectionId: this.connectionId,
+      result: translation.translatedText,
+    });
+  }
+
+  private shouldTranslateChanged(result: string): boolean {
+    if (!this.lastTranslatedSource) {
+      return true;
+    }
+
+    if (result === this.lastTranslatedSource) {
+      return false;
+    }
+
+    if (
+      result.startsWith(this.lastTranslatedSource) &&
+      result.length - this.lastTranslatedSource.length < config.recognition.minChangedCharsDelta
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private resolveTranslation(result: string, eventType: 'changed' | 'end' | 'completed'): Promise<TranslationOutcome> {
+    const cacheKey = `${eventType}:${result}`;
+    const cached = this.translationCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const promise = this.translationService
+      .translate(result, {
+        connectionId: this.connectionId,
+        eventType,
+      })
+      .finally(() => {
+        this.translationCache.delete(cacheKey);
+      });
+
+    this.translationCache.set(cacheKey, promise);
+    return promise;
   }
 
   private forwardAudio(buffer: Buffer): void {

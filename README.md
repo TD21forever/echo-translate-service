@@ -34,8 +34,20 @@ TypeScript backend that bridges incoming WebSocket audio streams to Alibaba Clou
 
 - Logs are categorised (startup, websocket, speech, translation) to simplify tracing.
 - Speech recognition tokens are cached and refreshed automatically.
-- Incoming audio is buffered briefly until the NLS session is ready, preventing data loss during initialisation.
+- Incoming audio is buffered (configurable) until the NLS session is ready, preventing data loss during initialisation.
+- Partial transcripts are pushed immediately so the UI can display raw speech text while translation is still running.
 - The service auto-detects the source language (Japanese, Chinese, Korean, English) before sending text to the translation API.
+
+## Latency tuning knobs
+
+| Variable | Default | Effect |
+| -------- | ------- | ------ |
+| `RECOGNITION_BUFFER_MAX_CHUNKS` | 16 | Maximum audio frames buffered before NLS is ready |
+| `RECOGNITION_MAX_START_SILENCE_MS` | 2000 | Silence tolerated (ms) before speech is considered started |
+| `RECOGNITION_MAX_END_SILENCE_MS` | 200 | Silence tolerated (ms) before speech is considered finished |
+| `RECOGNITION_ENABLE_VOICE_DETECTION` | false | Enable/disable server-side voice activity detection |
+| `RECOGNITION_MIN_CHANGED_DELTA` | 4 | Minimum character delta between `changed` events to re-trigger translation |
+| `RECOGNITION_SEND_SOURCE_IMMEDIATELY` | true | Whether raw recognition text is pushed before translation completes |
 
 ## Deployment
 

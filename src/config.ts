@@ -24,6 +24,16 @@ export interface ServerConfig {
   readonly pingIntervalMs: number;
 }
 
+export interface RecognitionConfig {
+  readonly bufferMaxChunks: number;
+  readonly maxStartSilenceMs: number;
+  readonly maxEndSilenceMs: number;
+  readonly enableVoiceDetection: boolean;
+  readonly enableSemanticSentenceDetection: boolean;
+  readonly minChangedCharsDelta: number;
+  readonly sendSourceImmediately: boolean;
+}
+
 export interface AppConfig {
   readonly accessKeyId: string;
   readonly accessKeySecret: string;
@@ -31,6 +41,7 @@ export interface AppConfig {
   readonly translation: TranslationConfig;
   readonly server: ServerConfig;
   readonly logLevel: LogLevel;
+  readonly recognition: RecognitionConfig;
 }
 
 class MissingEnvError extends Error {
@@ -63,6 +74,15 @@ function readInt(variable: string, fallback: number): number {
   return parsed;
 }
 
+function readBool(variable: string, fallback: boolean): boolean {
+  const raw = process.env[variable];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
+}
+
 function readLogLevel(): LogLevel {
   const raw = (process.env.LOG_LEVEL ?? '').toLowerCase();
   if (raw === 'debug' || raw === 'info' || raw === 'warn' || raw === 'error') {
@@ -92,6 +112,15 @@ const config: AppConfig = {
     pingIntervalMs: readInt('NLS_PING_INTERVAL_MS', 6000),
   },
   logLevel: readLogLevel(),
+  recognition: {
+    bufferMaxChunks: readInt('RECOGNITION_BUFFER_MAX_CHUNKS', 16),
+    maxStartSilenceMs: readInt('RECOGNITION_MAX_START_SILENCE_MS', 2000),
+    maxEndSilenceMs: readInt('RECOGNITION_MAX_END_SILENCE_MS', 200),
+    enableVoiceDetection: readBool('RECOGNITION_ENABLE_VOICE_DETECTION', false),
+    enableSemanticSentenceDetection: readBool('RECOGNITION_ENABLE_SEMANTIC_SENTENCE_DETECTION', false),
+    minChangedCharsDelta: readInt('RECOGNITION_MIN_CHANGED_DELTA', 4),
+    sendSourceImmediately: readBool('RECOGNITION_SEND_SOURCE_IMMEDIATELY', true),
+  },
 };
 
 export default config;
