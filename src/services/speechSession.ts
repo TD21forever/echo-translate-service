@@ -178,62 +178,35 @@ export class SpeechSession {
   }
 
   private async handleRecognition(result: string, eventType: 'changed' | 'end' | 'completed'): Promise<void> {
-    const isChanged = eventType === 'changed';
 
-    if (isChanged) {
-      if (result === this.lastSourceText) {
-        return;
-      }
-      logger.debug('speech', 'Recognition result changed', {
-        connectionId: this.connectionId,
-        result,
-      });
-      this.lastSourceText = result;
-    } else {
-      this.lastSourceText = '';
-      this.lastTranslatedSource = '';
-    }
-
-    const { normalizedText, modifications } = normalizeJapaneseText(result);
+    const { normalizedText } = normalizeJapaneseText(result);
     const textForTranslation = normalizedText || result;
-
-    if (modifications.length > 0) {
-      logger.debug('speech', 'Applied Japanese normalization', {
-        connectionId: this.connectionId,
-        eventType,
-        modifications,
-        originalPreview: result.slice(0, 60),
-        normalizedPreview: textForTranslation.slice(0, 60),
-      });
-    }
-
-    // const shouldTranslate = !isChanged || this.shouldTranslateChanged(textForTranslation);
-    // if (!shouldTranslate) {
-    //   return;
-    // }
-
-    if (isChanged) {
-      this.lastTranslatedSource = textForTranslation;
-    }
-
-    this.metrics.incrementTranslations();
-    logger.debug('translation', 'Processing recognition result', {
+    const shouldTranslate = this.shouldTranslateChanged(textForTranslation, eventType);
+    logger.debug('speech', 'Should translate', {
       connectionId: this.connectionId,
       eventType,
-      textPreview: textForTranslation.slice(0, 60),
+      source: result,
+      normalizedText,
+      textForTranslation,
+      shouldTranslate,
     });
+    if (textForTranslation === this.lastSourceText) {
+      return;
+    }
+    
+    this.metrics.incrementTranslations();
 
-    if (eventType === 'end' || eventType === 'completed') {
+    if (shouldTranslate) {
       const translation = await this.resolveTranslation(result, textForTranslation, eventType);
-
+      this.lastTranslatedSource = result;
       sendJsonMessage(this.socket, eventType, {
         result: translation.translatedText,
         source: result,
         detectedLanguage: translation.detectedLanguage,
         isTranslated: true,
-        isFinal: !isChanged,
         latencyMs: translation.durationMs,
       });
+      
       logger.debug('translation', 'Translation completed', {
         connectionId: this.connectionId,
         result: translation.translatedText,
@@ -241,13 +214,14 @@ export class SpeechSession {
     }
   }
 
-  private shouldTranslateChanged(normalizedResult: string): boolean {
-    if (!this.lastTranslatedSource) {
-      return true;
+  private shouldTranslateChanged(normalizedResult: string, eventType: 'changed' | 'end' | 'completed'): boolean {
+
+    if (normalizedResult === this.lastSourceText) {
+      return false;
     }
 
-    if (normalizedResult === this.lastTranslatedSource) {
-      return false;
+    if (eventType === 'end' || eventType === 'completed') {
+      return true;
     }
 
     if (
