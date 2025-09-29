@@ -9,6 +9,7 @@ import { logger } from '../utils/logger';
 import { AudioBufferQueue, toAudioBuffer } from '../core/audioBufferQueue';
 import { SessionMetrics } from '../core/sessionMetrics';
 import { sendJsonMessage } from '../core/messages';
+import { normalizeJapaneseText } from '../middleware/japaneseNormalizer';
 
 const { SpeechTranscription } = Nls;
 
@@ -193,51 +194,65 @@ export class SpeechSession {
       this.lastTranslatedSource = '';
     }
 
-    const shouldTranslate = !isChanged || this.shouldTranslateChanged(result);
-    if (!shouldTranslate) {
-      return;
+    const { normalizedText, modifications } = normalizeJapaneseText(result);
+    const textForTranslation = normalizedText || result;
+
+    if (modifications.length > 0) {
+      logger.debug('speech', 'Applied Japanese normalization', {
+        connectionId: this.connectionId,
+        eventType,
+        modifications,
+        originalPreview: result.slice(0, 60),
+        normalizedPreview: textForTranslation.slice(0, 60),
+      });
     }
 
+    // const shouldTranslate = !isChanged || this.shouldTranslateChanged(textForTranslation);
+    // if (!shouldTranslate) {
+    //   return;
+    // }
+
     if (isChanged) {
-      this.lastTranslatedSource = result;
+      this.lastTranslatedSource = textForTranslation;
     }
 
     this.metrics.incrementTranslations();
     logger.debug('translation', 'Processing recognition result', {
       connectionId: this.connectionId,
       eventType,
-      textPreview: result.slice(0, 60),
+      textPreview: textForTranslation.slice(0, 60),
     });
 
-    const translation = await this.resolveTranslation(result, eventType);
+    if (eventType === 'end' || eventType === 'completed') {
+      const translation = await this.resolveTranslation(result, textForTranslation, eventType);
 
-    sendJsonMessage(this.socket, eventType, {
-      result: translation.translatedText,
-      source: result,
-      detectedLanguage: translation.detectedLanguage,
-      isTranslated: true,
-      isFinal: !isChanged,
-      latencyMs: translation.durationMs,
-    });
-
-    logger.debug('translation', 'Translation completed', {
-      connectionId: this.connectionId,
-      result: translation.translatedText,
-    });
+      sendJsonMessage(this.socket, eventType, {
+        result: translation.translatedText,
+        source: result,
+        detectedLanguage: translation.detectedLanguage,
+        isTranslated: true,
+        isFinal: !isChanged,
+        latencyMs: translation.durationMs,
+      });
+      logger.debug('translation', 'Translation completed', {
+        connectionId: this.connectionId,
+        result: translation.translatedText,
+      });
+    }
   }
 
-  private shouldTranslateChanged(result: string): boolean {
+  private shouldTranslateChanged(normalizedResult: string): boolean {
     if (!this.lastTranslatedSource) {
       return true;
     }
 
-    if (result === this.lastTranslatedSource) {
+    if (normalizedResult === this.lastTranslatedSource) {
       return false;
     }
 
     if (
-      result.startsWith(this.lastTranslatedSource) &&
-      result.length - this.lastTranslatedSource.length < config.recognition.minChangedCharsDelta
+      normalizedResult.startsWith(this.lastTranslatedSource) &&
+      normalizedResult.length - this.lastTranslatedSource.length < config.recognition.minChangedCharsDelta
     ) {
       return false;
     }
@@ -245,15 +260,19 @@ export class SpeechSession {
     return true;
   }
 
-  private resolveTranslation(result: string, eventType: 'changed' | 'end' | 'completed'): Promise<TranslationOutcome> {
-    const cacheKey = `${eventType}:${result}`;
+  private resolveTranslation(
+    _rawResult: string,
+    normalizedResult: string,
+    eventType: 'changed' | 'end' | 'completed'
+  ): Promise<TranslationOutcome> {
+    const cacheKey = `${eventType}:${normalizedResult}`;
     const cached = this.translationCache.get(cacheKey);
     if (cached) {
       return cached;
     }
 
     const promise = this.translationService
-      .translate(result, {
+      .translate(normalizedResult, {
         connectionId: this.connectionId,
         eventType,
       })

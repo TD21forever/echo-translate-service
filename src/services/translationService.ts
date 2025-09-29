@@ -1,6 +1,6 @@
 import TranslationClient, {
-  TranslateGeneralRequest,
-  TranslateGeneralResponse,
+  TranslateRequest,
+  TranslateResponse,
 } from '@alicloud/alimt20181012';
 import { RuntimeOptions } from '@alicloud/tea-util';
 
@@ -41,7 +41,7 @@ export class TranslationService {
       detectedLanguage,
     });
 
-    const request = new TranslateGeneralRequest({
+    const request = new TranslateRequest({
       formatType: 'text',
       sourceLanguage: detectedLanguage,
       targetLanguage: config.translation.targetLanguage,
@@ -52,10 +52,10 @@ export class TranslationService {
     const start = Date.now();
 
     try {
-      const response = (await this.client.translateGeneralWithOptions(
+      const response = (await this.client.translateWithOptions(
         request,
         this.runtime
-      )) as TranslateGeneralResponse;
+      )) as TranslateResponse;
 
       const translatedText = response.body?.data?.translated ?? '';
       const durationMs = Date.now() - start;
