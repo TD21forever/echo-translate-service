@@ -193,15 +193,6 @@ export class SpeechSession {
       this.lastTranslatedSource = '';
     }
 
-    if (config.recognition.sendSourceImmediately) {
-      sendJsonMessage(this.socket, eventType, {
-        result,
-        source: result,
-        isTranslated: false,
-        isFinal: !isChanged,
-      });
-    }
-
     const shouldTranslate = !isChanged || this.shouldTranslateChanged(result);
     if (!shouldTranslate) {
       return;

@@ -31,7 +31,6 @@ export interface RecognitionConfig {
   readonly enableVoiceDetection: boolean;
   readonly enableSemanticSentenceDetection: boolean;
   readonly minChangedCharsDelta: number;
-  readonly sendSourceImmediately: boolean;
 }
 
 export interface AppConfig {
@@ -119,7 +118,6 @@ const config: AppConfig = {
     enableVoiceDetection: readBool('RECOGNITION_ENABLE_VOICE_DETECTION', false),
     enableSemanticSentenceDetection: readBool('RECOGNITION_ENABLE_SEMANTIC_SENTENCE_DETECTION', false),
     minChangedCharsDelta: readInt('RECOGNITION_MIN_CHANGED_DELTA', 4),
-    sendSourceImmediately: readBool('RECOGNITION_SEND_SOURCE_IMMEDIATELY', true),
   },
 };
 
